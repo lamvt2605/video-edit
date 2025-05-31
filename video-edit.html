@@ -4,8 +4,41 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Tool Edit Video Hàng Loạt</title>
-    <!-- FFmpeg.wasm -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/ffmpeg-wasm/0.12.6/ffmpeg.min.js"></script>
+    <!-- FFmpeg.wasm - Multiple CDN sources for reliability -->
+    <script src="https://unpkg.com/@ffmpeg/ffmpeg@0.12.10/dist/ffmpeg.min.js" onerror="loadBackupFFmpeg()"></script>
+    <script>
+        function loadBackupFFmpeg() {
+            console.log('Loading backup FFmpeg...');
+            const script = document.createElement('script');
+            script.src = 'https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.10/dist/ffmpeg.min.js';
+            script.onerror = function() {
+                console.log('Loading third backup FFmpeg...');
+                const script2 = document.createElement('script');
+                script2.src = 'https://cdnjs.cloudflare.com/ajax/libs/ffmpeg-wasm/0.11.6/ffmpeg.min.js';
+                script2.onerror = function() {
+                    showFFmpegError();
+                };
+                document.head.appendChild(script2);
+            };
+            document.head.appendChild(script);
+        }
+        
+        function showFFmpegError() {
+            document.body.innerHTML = `
+                <div style="padding: 40px; text-align: center; font-family: Arial;">
+                    <h1 style="color: #ff6b6b;">⚠️ Không thể tải FFmpeg</h1>
+                    <p>Vui lòng thử:</p>
+                    <ul style="text-align: left; max-width: 400px; margin: 20px auto;">
+                        <li>Kiểm tra kết nối Internet</li>
+                        <li>Sử dụng trình duyệt Chrome mới nhất</li>
+                        <li>Mở trang trên HTTPS (GitHub Pages/Netlify)</li>
+                        <li>Tắt ad blocker</li>
+                    </ul>
+                    <button onclick="location.reload()" style="padding: 15px 30px; background: #4ecdc4; color: white; border: none; border-radius: 10px; cursor: pointer; font-size: 16px; margin-top: 20px;">🔄 Thử lại</button>
+                </div>
+            `;
+        }
+    </script>
     <style>
         * {
             margin: 0;
@@ -400,6 +433,67 @@
         let selectedVideos = [];
         let logoFile = null;
         let ffmpeg = null;
+        let FFmpegLoaded = false;
+
+        // Check if FFmpeg is available
+        function checkFFmpeg() {
+            return typeof FFmpeg !== 'undefined' && FFmpeg.createFFmpeg;
+        }
+
+        // Initialize FFmpeg with better error handling
+        async function initFFmpeg() {
+            try {
+                if (!ffmpeg && checkFFmpeg()) {
+                    ffmpeg = FFmpeg.createFFmpeg({ 
+                        log: true,
+                        corePath: 'https://unpkg.com/@ffmpeg/core@0.12.10/dist/ffmpeg-core.js'
+                    });
+                    
+                    showMessage('Đang tải FFmpeg... Vui lòng chờ 10-30 giây.', 'info');
+                    await ffmpeg.load();
+                    FFmpegLoaded = true;
+                    showMessage('FFmpeg đã sẵn sàng! 🎉', 'success');
+                } else if (!checkFFmpeg()) {
+                    throw new Error('FFmpeg không có sẵn. Vui lòng kiểm tra kết nối Internet.');
+                }
+            } catch (error) {
+                console.error('FFmpeg initialization error:', error);
+                showMessage('Lỗi tải FFmpeg: ' + error.message, 'error');
+                throw error;
+            }
+        }
+
+        // Show message to user
+        function showMessage(message, type = 'info') {
+            const messageDiv = document.getElementById('messageDiv') || createMessageDiv();
+            messageDiv.innerHTML = `
+                <div style="padding: 15px; margin: 15px 0; border-radius: 10px; ${getMessageStyle(type)}">
+                    ${message}
+                </div>
+            `;
+            
+            if (type === 'success' || type === 'info') {
+                setTimeout(() => {
+                    messageDiv.innerHTML = '';
+                }, type === 'success' ? 3000 : 5000);
+            }
+        }
+
+        function createMessageDiv() {
+            const div = document.createElement('div');
+            div.id = 'messageDiv';
+            document.querySelector('.main-content').insertBefore(div, document.querySelector('.section'));
+            return div;
+        }
+
+        function getMessageStyle(type) {
+            const styles = {
+                info: 'background: #e3f2fd; color: #1976d2; border: 1px solid #90caf9;',
+                success: 'background: #e8f5e8; color: #2e7d32; border: 1px solid #81c784;',
+                error: 'background: #ffebee; color: #c62828; border: 1px solid #ef5350;'
+            };
+            return styles[type] || styles.info;
+        }
 
         // Initialize FFmpeg
         async function initFFmpeg() {
@@ -503,21 +597,34 @@
             progressContainer.style.display = 'none';
         });
 
-        // Process videos
+        // Process videos with better error handling
         processBtn.addEventListener('click', async () => {
             if (selectedVideos.length === 0) {
-                alert('Vui lòng chọn ít nhất một video!');
+                showMessage('Vui lòng chọn ít nhất một video!', 'error');
                 return;
             }
 
             const textContent = document.getElementById('textContent').value;
             if (!logoFile && !textContent.trim()) {
-                alert('Vui lòng chọn logo hoặc nhập text!');
+                showMessage('Vui lòng chọn logo hoặc nhập text!', 'error');
+                return;
+            }
+
+            // Check FFmpeg availability first
+            if (!checkFFmpeg()) {
+                showMessage('FFmpeg chưa được tải. Vui lòng làm mới trang và thử lại.', 'error');
                 return;
             }
 
             try {
+                showMessage('Đang khởi tạo FFmpeg...', 'info');
                 await initFFmpeg();
+                
+                if (!FFmpegLoaded) {
+                    showMessage('Không thể khởi tạo FFmpeg. Vui lòng thử lại.', 'error');
+                    return;
+                }
+                
                 progressContainer.style.display = 'block';
                 processBtn.disabled = true;
                 processBtn.textContent = '⏳ Đang xử lý...';
@@ -535,19 +642,22 @@
                     try {
                         await processVideo(video);
                         video.status = 'completed';
+                        showMessage(`✅ Hoàn thành: ${video.name}`, 'success');
                     } catch (error) {
                         console.error('Error processing video:', error);
                         video.status = 'error';
+                        showMessage(`❌ Lỗi xử lý: ${video.name}`, 'error');
                     }
                     
                     updateVideoList();
                 }
 
-                progressText.textContent = 'Hoàn thành xử lý tất cả video!';
+                progressText.textContent = '🎉 Hoàn thành xử lý tất cả video!';
+                showMessage('Tất cả video đã được xử lý xong!', 'success');
                 
             } catch (error) {
                 console.error('Error:', error);
-                alert('Có lỗi xảy ra: ' + error.message);
+                showMessage('Có lỗi xảy ra: ' + error.message, 'error');
             } finally {
                 processBtn.disabled = false;
                 processBtn.textContent = '🚀 Bắt Đầu Xử Lý';
