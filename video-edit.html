@@ -495,18 +495,6 @@
             return styles[type] || styles.info;
         }
 
-        // Initialize FFmpeg
-        async function initFFmpeg() {
-            if (!ffmpeg) {
-                const { createFFmpeg, fetchFile } = FFmpeg;
-                ffmpeg = createFFmpeg({ 
-                    log: true,
-                    corePath: 'https://unpkg.com/@ffmpeg/core@0.12.6/dist/ffmpeg-core.js'
-                });
-                await ffmpeg.load();
-            }
-        }
-
         // DOM Elements
         const videoFilesInput = document.getElementById('videoFiles');
         const logoFileInput = document.getElementById('logoFile');
